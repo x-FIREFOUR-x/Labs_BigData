@@ -1,0 +1,97 @@
+
+	//* Google Cloud SDK Shell
+gcloud compute ssh --zone "us-central1-f" "cluster-398d-m" --tunnel-through-iap --project "bigdata1-436718"
+
+	//* olexandrpasalsky@cluster
+hadoop fs -mkdir /tables_data
+hadoop fs -mkdir /tables_data/UO
+hadoop fs -mkdir /tables_data/FOP
+
+	//* SSH-in-browser
+sudo chmod 777 /home
+
+
+	//* Google Cloud SDK Shell
+gcloud compute scp D:/Project/MASTER/1Semestr/BigData/Lab1/UO.csv olexandrpasalsky@cluster-398d-m:/home/UO.csv --zone "us-central1-f" --project "bigdata1-436718"
+gcloud compute scp D:/Project/MASTER/1Semestr/BigData/Lab1/FOP.csv olexandrpasalsky@cluster-398d-m:/home/FOP.csv --zone "us-central1-f" --project "bigdata1-436718"
+
+	//* olexandrpasalsky@cluster
+hadoop fs -put /home/UO.csv /tables_data/UO/
+hadoop fs -put /home/FOP.csv /tables_data/FOP/
+
+hive
+CREATE EXTERNAL TABLE UO_table(name STRING, EDRPOU STRING, ADDRESS STRING, BOSS STRING, founders STRING, fio STRING, KVED STRING, stan STRING) ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde' STORED AS TEXTFILE LOCATION '/tables_data/UO/';
+CREATE EXTERNAL TABLE FOP_table(fio STRING, address STRING, kved STRING, stan STRING) ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde' STORED AS TEXTFILE LOCATION '/tables_data/FOP/';
+
+
+	//1.1
+SELECT count(*) FROM UO_table;
+
+
+	//1.2
+SELECT name, edrpou, address, row_number() over (partition by address order by edrpou) AS rn_by_place FROM UO_table LIMIT 20;
+
+
+	//1.3
+SELECT * FROM UO_table uo JOIN FOP_table fop ON uo.address = fop.address;
+SELECT * FROM UO_table uo JOIN FOP_table fop ON uo.address = fop.address JOIN FOP_table fop1 ON uo.address = fop1.address;
+
+
+
+
+
+	//1.4 Create lending_club
+
+	//* olexandrpasalsky@cluster
+hadoop fs -mkdir /tables_data/LendingClub
+
+	//* SSH-in-browser
+sudo chmod 777 /home
+
+	//* Google Cloud SDK Shell
+gcloud compute scp D:/Project/MASTER/1Semestr/BigData/Lab1/LendingClubLoans_synthetic1.csv olexandrpasalsky@cluster-398d-m:/home/LendingClub.csv --zone "us-central1-f" --project "bigdata1-436718"
+
+	//* olexandrpasalsky@cluster
+hadoop fs -put /home/LendingClub.csv /tables_data/LendingClub/
+
+	hive
+CREATE EXTERNAL TABLE lending_club(loan_amount INT, payments_term STRING, monthly_payment DOUBLE, grade INT, working_years INT, home STRING, annual_income DOUBLE, verification STRING, purpose STRING, debt_to_income DOUBLE, delinquency INT, inquiries INT, open_credit_lines INT, derogatory_records INT, revolving_balance DOUBLE, revolving_rate DOUBLE, total_accounts INT, bankruptcies INT, fico_average INT, loan_risk STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ';' STORED AS TEXTFILE LOCATION '/tables_data/LendingClub/';
+
+
+
+
+	//1.4 Create lending_club_partitions and download data 
+CREATE TABLE lending_club_partitions(loan_amount INT, payments_term STRING, monthly_payment DOUBLE, grade INT, working_years INT, home STRING, annual_income DOUBLE, purpose STRING, debt_to_income DOUBLE, delinquency INT, inquiries INT, open_credit_lines INT, derogatory_records INT, revolving_balance DOUBLE, revolving_rate DOUBLE, total_accounts INT, bankruptcies INT, fico_average INT, loan_risk STRING) PARTITIONED BY (verification STRING) STORED AS ORC;
+
+set hive.exec.dynamic.partition = true;
+set hive.exec.dynamic.partition.mode = nonstrict;
+
+INSERT OVERWRITE TABLE lending_club_partitions PARTITION (verification) SELECT loan_amount, payments_term, monthly_payment, grade, working_years, home, annual_income, purpose, debt_to_income, delinquency, inquiries, open_credit_lines, derogatory_records,  revolving_balance, revolving_rate, total_accounts, bankruptcies, fico_average, loan_risk, verification FROM lending_club;
+
+SHOW PARTITIONS lending_club_partitions;
+
+SELECT COUNT(*) FROM lending_club WHERE verification = 'Not Verified';
+SELECT COUNT(*) FROM lending_club_partitions WHERE verification = 'Not Verified';
+
+
+
+	//1.5-6 Create lending_club_buckets and download data 
+CREATE TABLE lending_club_buckets (loan_amount STRING, payments_term STRING, monthly_payment STRING, grade STRING, working_years STRING, home STRING, annual_income STRING, verification STRING, purpose STRING, debt_to_income STRING, delinquency STRING, inquiries STRING, open_credit_lines STRING, derogatory_records STRING, resolving_balance STRING, resolving_rate STRING, total_accounts STRING, bankruptcies STRING, fico_average STRING, loan_risk STRING) CLUSTERED BY (working_years) INTO 10 BUCKETS STORED AS ORC;
+
+INSERT OVERWRITE TABLE lending_club_buckets SELECT * FROM lending_club;
+
+hdfs dfs -ls /user/hive/warehouse/lending_club_buckets/
+
+SELECT COUNT(*) FROM lending_club WHERE grade = '5';
+SELECT COUNT(*) FROM lending_club_buckets WHERE grade = '5';
+
+
+FROM lending_club_buckets lcb INSERT OVERWRITE DIRECTORY '/tmp/5_working_years' SELECT * WHERE lcb.working_years = '5';
+
+hdfs dfs -ls hdfs:///tmp/
+
+
+
+	//1.7
+
+
